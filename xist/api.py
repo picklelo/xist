@@ -10,13 +10,15 @@ from xist.models.diffusion.ddim import DDIMSampler
 from xist.models.diffusion.plms import PLMSSampler
 from xist.util import instantiate_from_config
 
+
 def get_device():
-    if(torch.cuda.is_available()):
-        return 'cuda'
-    elif(torch.backends.mps.is_available()):
-        return 'mps'
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
     else:
-        return 'cpu'
+        return "cpu"
+
 
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
@@ -38,6 +40,7 @@ def load_model_from_config(config, ckpt, verbose=False):
     model.eval()
     return model
 
+
 config = "configs/stable-diffusion/v1-inference.yaml"
 config = OmegaConf.load(config)
 model = load_model_from_config(config, "/model.ckpt")
@@ -46,6 +49,7 @@ model = model.to(device)
 
 # Options
 import os
+
 plms = True
 outpath = "outputs/txt2img-samples"
 outpath = "assets"
@@ -76,6 +80,7 @@ os.makedirs(outpath, exist_ok=True)
 import time
 from tqdm import trange, tqdm
 
+
 def infer(prompt: str):
     print("Running infer!", prompt)
     base_count = len(os.listdir(sample_path))
@@ -94,27 +99,35 @@ def infer(prompt: str):
                         prompts = list(prompts)
                     c = model.get_learned_conditioning(prompts)
                     shape = [C, H // f, W // f]
-                    samples_ddim, _ = sampler.sample(S=ddim_steps,
-                                                        conditioning=c,
-                                                        batch_size=n_samples,
-                                                        shape=shape,
-                                                        verbose=False,
-                                                        unconditional_guidance_scale=scale,
-                                                        unconditional_conditioning=uc,
-                                                        eta=ddim_eta,
-                                                        x_T=start_code)
+                    samples_ddim, _ = sampler.sample(
+                        S=ddim_steps,
+                        conditioning=c,
+                        batch_size=n_samples,
+                        shape=shape,
+                        verbose=False,
+                        unconditional_guidance_scale=scale,
+                        unconditional_conditioning=uc,
+                        eta=ddim_eta,
+                        x_T=start_code,
+                    )
 
                     x_samples_ddim = model.decode_first_stage(samples_ddim)
-                    x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+                    x_samples_ddim = torch.clamp(
+                        (x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0
+                    )
                     x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
 
                     x_checked_image = x_samples_ddim
 
-                    x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
+                    x_checked_image_torch = torch.from_numpy(x_checked_image).permute(
+                        0, 3, 1, 2
+                    )
 
                     if not skip_save:
                         for x_sample in x_checked_image_torch:
-                            x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                            x_sample = 255.0 * rearrange(
+                                x_sample.cpu().numpy(), "c h w -> h w c"
+                            )
                             img = Image.fromarray(x_sample.astype(np.uint8))
                             img.save(os.path.join(sample_path, f"{base_count:05}.png"))
                             base_count += 1
@@ -125,38 +138,46 @@ def infer(prompt: str):
             if not skip_grid:
                 # additionally, save as grid
                 grid = torch.stack(all_samples, 0)
-                grid = rearrange(grid, 'n b c h w -> (n b) c h w')
+                grid = rearrange(grid, "n b c h w -> (n b) c h w")
                 grid = make_grid(grid, nrow=n_rows)
 
                 # to image
-                grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
+                grid = 255.0 * rearrange(grid, "c h w -> h w c").cpu().numpy()
                 img = Image.fromarray(grid.astype(np.uint8))
-                img.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
+                img.save(os.path.join(outpath, f"grid-{grid_count:04}.png"))
                 grid_count += 1
 
             toc = time.time()
 
-    print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
-          f" \nEnjoy.")
-
+    print(
+        f"Your samples are ready and waiting for you here: \n{outpath} \n" f" \nEnjoy."
+    )
 
 
 # API Stuff
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
 app = FastAPI()
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
+
 from pydantic import BaseModel
+
+
 class Request(BaseModel):
     prompt: str
 
+
 from queue import SimpleQueue
+
 requests = SimpleQueue()
+
 
 @app.post("/infer")
 def run_infer(request: Request):
@@ -166,14 +187,17 @@ def run_infer(request: Request):
     prompt = request.prompt
     print("Prompt: ", request)
     requests.put(prompt)
-    return  {"message": requests.qsize()}
+    return {"message": requests.qsize()}
+
 
 @app.get("/results")
 def results():
     files = reversed(sorted(os.listdir("assets")))
     return {"files": list(files)}
 
+
 import threading
+
 
 def process_prompts(name):
     print("Starting thread", name)
@@ -181,6 +205,7 @@ def process_prompts(name):
         prompt = requests.get()
         print("Got prompt", prompt)
         infer(prompt)
+
 
 x = threading.Thread(target=process_prompts, args=(1,))
 x.start()

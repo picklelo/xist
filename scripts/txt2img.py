@@ -18,13 +18,14 @@ from xist.util import instantiate_from_config
 from xist.models.diffusion.ddim import DDIMSampler
 from xist.models.diffusion.plms import PLMSSampler
 
+
 def get_device():
-    if(torch.cuda.is_available()):
-        return 'cuda'
-    elif(torch.backends.mps.is_available()):
-        return 'mps'
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
     else:
-        return 'cpu'
+        return "cpu"
 
 
 def chunk(it, size):
@@ -64,6 +65,7 @@ def load_model_from_config(config, ckpt, verbose=False):
     model.eval()
     return model
 
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -72,23 +74,23 @@ def main():
         type=str,
         nargs="?",
         default="a painting of a virus monster playing guitar",
-        help="the prompt to render"
+        help="the prompt to render",
     )
     parser.add_argument(
         "--outdir",
         type=str,
         nargs="?",
         help="dir to write results to",
-        default="outputs/txt2img-samples"
+        default="outputs/txt2img-samples",
     )
     parser.add_argument(
         "--skip_grid",
-        action='store_true',
+        action="store_true",
         help="do not save a grid, only individual samples. Helpful when evaluating lots of samples",
     )
     parser.add_argument(
         "--skip_save",
-        action='store_true',
+        action="store_true",
         help="do not save individual samples. For speed measurements.",
     )
     parser.add_argument(
@@ -99,17 +101,17 @@ def main():
     )
     parser.add_argument(
         "--plms",
-        action='store_true',
+        action="store_true",
         help="use plms sampling",
     )
     parser.add_argument(
         "--laion400m",
-        action='store_true',
+        action="store_true",
         help="uses the LAION400M model",
     )
     parser.add_argument(
         "--fixed_code",
-        action='store_true',
+        action="store_true",
         help="if enabled, uses the same starting code across samples ",
     )
     parser.add_argument(
@@ -194,7 +196,7 @@ def main():
         type=str,
         help="evaluate at this precision",
         choices=["full", "autocast"],
-        default="autocast"
+        default="autocast",
     )
     opt = parser.parse_args()
 
@@ -244,9 +246,9 @@ def main():
             [opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device="cpu"
         ).to(torch.device(device))
 
-    precision_scope = autocast if opt.precision=="autocast" else nullcontext
-    if device.type == 'mps':
-        precision_scope = nullcontext # have to use f32 on mps
+    precision_scope = autocast if opt.precision == "autocast" else nullcontext
+    if device.type == "mps":
+        precision_scope = nullcontext  # have to use f32 on mps
     with torch.no_grad():
         with precision_scope(device.type):
             with model.ema_scope():
@@ -261,29 +263,41 @@ def main():
                             prompts = list(prompts)
                         c = model.get_learned_conditioning(prompts)
                         shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-                        samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
-                                                         conditioning=c,
-                                                         batch_size=opt.n_samples,
-                                                         shape=shape,
-                                                         verbose=False,
-                                                         unconditional_guidance_scale=opt.scale,
-                                                         unconditional_conditioning=uc,
-                                                         eta=opt.ddim_eta,
-                                                         x_T=start_code)
+                        samples_ddim, _ = sampler.sample(
+                            S=opt.ddim_steps,
+                            conditioning=c,
+                            batch_size=opt.n_samples,
+                            shape=shape,
+                            verbose=False,
+                            unconditional_guidance_scale=opt.scale,
+                            unconditional_conditioning=uc,
+                            eta=opt.ddim_eta,
+                            x_T=start_code,
+                        )
 
                         x_samples_ddim = model.decode_first_stage(samples_ddim)
-                        x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                        x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
+                        x_samples_ddim = torch.clamp(
+                            (x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0
+                        )
+                        x_samples_ddim = (
+                            x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
+                        )
 
                         x_checked_image = x_samples_ddim
 
-                        x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
+                        x_checked_image_torch = torch.from_numpy(
+                            x_checked_image
+                        ).permute(0, 3, 1, 2)
 
                         if not opt.skip_save:
                             for x_sample in x_checked_image_torch:
-                                x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                                x_sample = 255.0 * rearrange(
+                                    x_sample.cpu().numpy(), "c h w -> h w c"
+                                )
                                 img = Image.fromarray(x_sample.astype(np.uint8))
-                                img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                                img.save(
+                                    os.path.join(sample_path, f"{base_count:05}.png")
+                                )
                                 base_count += 1
 
                         if not opt.skip_grid:
@@ -292,19 +306,20 @@ def main():
                 if not opt.skip_grid:
                     # additionally, save as grid
                     grid = torch.stack(all_samples, 0)
-                    grid = rearrange(grid, 'n b c h w -> (n b) c h w')
+                    grid = rearrange(grid, "n b c h w -> (n b) c h w")
                     grid = make_grid(grid, nrow=n_rows)
 
                     # to image
-                    grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
+                    grid = 255.0 * rearrange(grid, "c h w -> h w c").cpu().numpy()
                     img = Image.fromarray(grid.astype(np.uint8))
-                    img.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
+                    img.save(os.path.join(outpath, f"grid-{grid_count:04}.png"))
                     grid_count += 1
 
                 toc = time.time()
 
-    print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
-          f" \nEnjoy.")
+    print(
+        f"Your samples are ready and waiting for you here: \n{outpath} \n" f" \nEnjoy."
+    )
 
 
 if __name__ == "__main__":
